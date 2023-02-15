@@ -626,7 +626,7 @@ if __name__ == '__main__':
     #model = timm.create_model('resnet_10t', pretrained=False, num_classes = num_classes)
     #model = resnet20(num_classes=num_classes)
 
-    model = ViT(dim=256, num_classes=num_classes, depth=8, drop_path=0.1, drop=0.1)
+    model = ViT(dim=128, num_classes=num_classes, depth=6, drop_path=0.1, drop=0.1)
 
 
     '''
