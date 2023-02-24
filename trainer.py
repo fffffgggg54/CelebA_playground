@@ -6,6 +6,7 @@ import torch.nn as nn
 import timm
 import timm.layers.ml_decoder as ml_decoder
 import time
+import timm.optim
 
 import numpy as np
 
@@ -83,10 +84,23 @@ def mAP(targs, preds):
     return 100 * ap.mean()
 
 
-# derived from SW-CV-ModelZoo/tools/analyze_metrics.py
+def stepAtThreshold(x, threshold, k=10, base=1000):
+    return 1 / (1 + torch.pow(base, (0 - k) * (x - threshold)))
+
+def zero_grad(p, set_to_none=False):
+    if p.grad is not None:
+        if set_to_none:
+            p.grad = None
+        else:
+            if p.grad.grad_fn is not None:
+                p.grad.detach_()
+            else:
+                p.grad.requires_grad_(False)
+            p.grad.zero_()
+    return p
 
 class getDecisionBoundary(nn.Module):
-    def __init__(self, initial_threshold = 0.5, alpha = 1e-4, threshold_min = 0.01, threshold_max = 0.95):
+    def __init__(self, initial_threshold = 0.5, alpha = 1e-3, threshold_min = 0.2, threshold_max = 0.8):
         super().__init__()
         self.initial_threshold = initial_threshold
         self.thresholdPerClass = None
@@ -98,59 +112,26 @@ class getDecisionBoundary(nn.Module):
         if self.thresholdPerClass == None:
             classCount = preds.size(dim=1)
             currDevice = preds.device
-            self.thresholdPerClass = torch.ones(classCount, device=currDevice) * self.initial_threshold
-        
-        
-        with torch.no_grad():
-            # TODO update with logic to include current thresholds in calculation of per-batch threshold
-            threshold_min = torch.ones(len(self.thresholdPerClass), device=self.thresholdPerClass.device) * self.threshold_min
-            threshold_max = torch.ones(len(self.thresholdPerClass), device=self.thresholdPerClass.device) * self.threshold_max
-            threshold = (threshold_max + threshold_min) / 2
-            recall = torch.ones(len(self.thresholdPerClass), device=self.thresholdPerClass.device) * 0.0
-            precision = torch.ones(len(self.thresholdPerClass), device=self.thresholdPerClass.device) * 1.0
+            self.thresholdPerClass = torch.ones(classCount, device=currDevice, requires_grad=True).to(torch.float64) * self.initial_threshold
+            self.thresholdPerClass.retain_grad()
+        if preds.requires_grad:
+            preds = preds.detach()
             
-            adjustmentStopMask = torch.isclose(recall, precision).float()
-            lastAdjustmentStopMask = adjustmentStopMask
-            lastChange = 0
-            
-            if preds.requires_grad:
-                
-                while (1 - adjustmentStopMask).sum() > 0:
-                    #print((1 - adjustmentStopMask).sum())
-                    predsModified = (preds > threshold).float()
-                    metrics = getAccuracy(predsModified, targs)
+            predsModified = stepAtThreshold(preds, self.thresholdPerClass)
+            metrics = getAccuracy(predsModified, targs)
 
-                    
-                    # per-class stopping criterion
-                    adjustmentStopMask = torch.isclose(metrics[:,4], metrics[:,6]).float() # recall_P, precision_P
-                    
-                    
-                    # overall exit criterion
-                    
-                    # if there is any change, reset the no-change counter and update the change reference to new mask
-                    if not torch.equal(adjustmentStopMask, lastAdjustmentStopMask):
-                        lastAdjustmentStopMask = adjustmentStopMask
-                        lastChange = 0
-                    # increment the no-change counter
-                    lastChange += 1
-                    # exit if there hasn't been changes to the stopping mask for a while
-                    if lastChange > 2:
-                        break
-                    
-                    threshold = adjustmentStopMask * threshold + (1 - adjustmentStopMask) * (threshold_max + threshold_min) / 2
-                    mask = (precision > recall).float()
-                    threshold_max = mask * threshold + (1 - mask) * threshold_max
-                    threshold_min = (1 - mask) * threshold + mask * threshold_min
-        
-        
-            alpha = self.alpha if preds.requires_grad else 0
-            #self.thresholdPerClass = self.thresholdPerClass * (1 - alpha * targs.sum(dim=0)) + alpha * (preds * targs).sum(dim=0)
-            # weighting mask of each threshold shift
-            deltaPerClass = alpha * targs.sum(dim=0) * adjustmentStopMask
-            # EMA of per-class thresholds
-            self.thresholdPerClass = self.thresholdPerClass * (1 - deltaPerClass) + threshold * deltaPerClass
+            numToMax = metrics[:,8].sum()
+
             
-        return self.thresholdPerClass
+            numToMax.backward()
+            with torch.no_grad():
+                new_threshold = self.alpha * self.thresholdPerClass.grad
+                self.thresholdPerClass.add_(new_threshold)
+            
+            self.thresholdPerClass = zero_grad(self.thresholdPerClass)
+            self.thresholdPerClass = self.thresholdPerClass.detach()
+            self.thresholdPerClass.requires_grad=True
+        return self.thresholdPerClass.detach()
 
 class Hill(nn.Module):
     r""" Hill as described in the paper "Robust Loss Design for Multi-Label Learning with Missing Labels "
@@ -256,6 +237,59 @@ class AsymmetricLoss(nn.Module):
         return -loss.sum()
 
 
+class MetricTracker():
+    def __init__(self):
+        self.running_confusion_matrix = None
+        self.epsilon = 1e-12
+        self.sampleCount = 0
+        
+    def get_full_metrics(self):
+        with torch.no_grad():
+            TP, FN, FP, TN = self.running_confusion_matrix / self.sampleCount
+            
+            Precall = TP / (TP + FN + self.epsilon)
+            Nrecall = TN / (TN + FP + self.epsilon)
+            Pprecision = TP / (TP + FP + self.epsilon)
+            Nprecision = TN / (TN + FN + self.epsilon)
+            
+            P4 = (4 * TP * TN) / ((4 * TN * TP) + (TN + TP) * (FP + FN) + self.epsilon)
+        
+            return torch.column_stack([TP, FN, FP, TN, Precall, Nrecall, Pprecision, Nprecision, P4])
+        
+    def get_aggregate_metrics(self):
+        with torch.no_grad():
+            TP, FN, FP, TN = (self.running_confusion_matrix / self.sampleCount).mean(dim=1)
+            
+            Precall = TP / (TP + FN + self.epsilon)
+            Nrecall = TN / (TN + FP + self.epsilon)
+            Pprecision = TP / (TP + FP + self.epsilon)
+            Nprecision = TN / (TN + FN + self.epsilon)
+            
+            P4 = (4 * TP * TN) / ((4 * TN * TP) + (TN + TP) * (FP + FN) + self.epsilon)
+            return torch.stack([TP, FN, FP, TN, Precall, Nrecall, Pprecision, Nprecision, P4])
+    
+    def update(self, preds, targs):
+        self.sampleCount += targs.size(dim=0)
+        
+        targs_inv = 1 - targs
+        P = targs * preds
+        N = targs_inv * preds
+        
+        
+        TP = P.sum(dim=0)
+        FN = (targs - P).sum(dim=0)
+        FP = N.sum(dim=0)
+        TN = (targs_inv - N).sum(dim=0)
+        
+        output = torch.stack([TP, FN, FP, TN])
+        if self.running_confusion_matrix is None:
+            self.running_confusion_matrix = output
+        
+        else:
+            self.running_confusion_matrix += output
+            
+        return self.get_aggregate_metrics()
+
 lr = 3e-3
 lr_warmup_epochs = 5
 num_epochs = 100
@@ -265,13 +299,13 @@ num_classes = 40
 weight_decay = 2e-3
 resume_epoch = 0
 
-device = 'cuda:1'
+device = 'cpu'
 
 def getDataLoader(dataset):
     return torch.utils.data.DataLoader(dataset,
         batch_size = batch_size,
         shuffle=True,
-        num_workers=8,
+        num_workers=3,
         persistent_workers = True,
         prefetch_factor=2, 
         pin_memory = True, 
@@ -283,7 +317,6 @@ def getDataLoader(dataset):
 if __name__ == '__main__':
 
 
-    tagNames = pd.read_csv('./data/celeba/list_attr_celeba.txt', header=1, delim_whitespace=True).columns.values.tolist()
 
     train_ds = torchvision.datasets.CelebA(
         './data/',
@@ -306,6 +339,7 @@ if __name__ == '__main__':
             transforms.ToTensor(),
         ])
     )
+    tagNames = pd.read_csv('./data/celeba/list_attr_celeba.txt', header=1, delim_whitespace=True).columns.values.tolist()
 
 
     datasets = {'train':train_ds,'val':test_ds}
@@ -372,7 +406,7 @@ if __name__ == '__main__':
         dim_head = 32
     )
     '''
-    model = mz.add_ml_decoder_head(model)
+    #model = mz.add_ml_decoder_head(model)
     
     print(model)
     
@@ -385,7 +419,8 @@ if __name__ == '__main__':
     criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
     #criterion = Hill()
     #criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = timm.optim.Adan(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,
         max_lr=lr, 
         steps_per_epoch=len(dataloaders['train']), 
@@ -394,6 +429,7 @@ if __name__ == '__main__':
     )
     
     boundaryCalculator = getDecisionBoundary()
+    
     scheduler.last_epoch = len(dataloaders['train'])*resume_epoch
     cycleTime = time.time()
     epochTime = time.time()
@@ -402,6 +438,7 @@ if __name__ == '__main__':
         AP_regular = []
         AccuracyRunning = []
         for phase in ['train', 'val']:
+            cm_tracker = MetricTracker()
             if phase == 'train':
                 model.train()  # Set model to training mode
                 #if (hasTPU == True): xm.master_print("training set")
@@ -423,7 +460,7 @@ if __name__ == '__main__':
                     preds = torch.sigmoid(outputs)
                     boundary = boundaryCalculator(preds, labels)
                     predsModified = (preds > boundary).float()
-                    multiAccuracy = getAccuracy(predsModified, labels)
+                    multiAccuracy = cm_tracker.update(predsModified, labels)
                     accuracy = mAP(
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
@@ -452,7 +489,7 @@ if __name__ == '__main__':
                         imagesPerSecond = (batch_size * stepsPerPrintout)/(time.time() - cycleTime)
                         cycleTime = time.time()
                         torch.set_printoptions(linewidth = 200, sci_mode = False)
-                        print(f"[{epoch}/{num_epochs}][{i}/{len(dataloaders[phase])}]\tLoss: {loss:.4f}\tImages/Second: {imagesPerSecond:.4f}\tAccuracy: {accuracy:.2f}\t {[f'{num:.4f}' for num in (multiAccuracy.mean(dim=0) * 100).tolist()]}")
+                        print(f"[{epoch}/{num_epochs}][{i}/{len(dataloaders[phase])}]\tLoss: {loss:.4f}\tImages/Second: {imagesPerSecond:.4f}\tAccuracy: {accuracy:.2f}\t {[f'{num:.4f}' for num in (multiAccuracy * 100).tolist()]}")
                         torch.set_printoptions(profile='default')
                     
                     if phase == 'val':
@@ -461,12 +498,10 @@ if __name__ == '__main__':
             
             if (phase == 'val'):
                 #torch.set_printoptions(profile="full")
-                
-                AvgAccuracy = torch.stack(AccuracyRunning)
-                AvgAccuracy = AvgAccuracy.mean(dim=0)
+                AvgAccuracy = cm_tracker.get_full_metrics()
                 LabelledAccuracy = list(zip(AvgAccuracy.tolist(), tagNames, boundaryCalculator.thresholdPerClass))
                 LabelledAccuracySorted = sorted(LabelledAccuracy, key = lambda x: x[0][8], reverse=True)
-                MeanStackedAccuracy = AvgAccuracy.mean(dim=0)
+                MeanStackedAccuracy = cm_tracker.get_aggregate_metrics()
                 MeanStackedAccuracyStored = MeanStackedAccuracy[4:]
                 print(*LabelledAccuracySorted, sep="\n")
                 #torch.set_printoptions(profile="default")
