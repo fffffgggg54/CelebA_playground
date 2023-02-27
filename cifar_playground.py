@@ -287,7 +287,7 @@ if __name__ == '__main__':
         steps_per_epoch=len(dataloaders['train'])
     )
     
-    boundaryCalculator = getDecisionBoundary(initial_threshold = 0.5, lr = 3e-4)
+    boundaryCalculator = getDecisionBoundary(initial_threshold = 0.5, lr = 3e-3)
     
     cycleTime = time.time()
     epochTime = time.time()
