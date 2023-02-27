@@ -2,296 +2,309 @@ import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 
-from einops import rearrange, repeat
-from einops.layers.torch import Rearrange
 
-# helper methods
+"""# custom models"""
 
-class ImageLinearAttention(nn.Module):
-    def __init__(self, chan, chan_out = None, kernel_size = 1, padding = 0, stride = 1, key_dim = 64, value_dim = 64, heads = 8, norm_queries = True):
-        super().__init__()
-        self.chan = chan
-        chan_out = chan if chan_out is None else chan_out
-
-        self.key_dim = key_dim
-        self.value_dim = value_dim
-        self.heads = heads
-
-        self.norm_queries = norm_queries
-
-        conv_kwargs = {'padding': padding, 'stride': stride}
-        self.to_q = nn.Conv2d(chan, key_dim * heads, kernel_size, **conv_kwargs)
-        self.to_k = nn.Conv2d(chan, key_dim * heads, kernel_size, **conv_kwargs)
-        self.to_v = nn.Conv2d(chan, value_dim * heads, kernel_size, **conv_kwargs)
-
-        out_conv_kwargs = {'padding': padding}
-        self.to_out = nn.Conv2d(value_dim * heads, chan_out, kernel_size, **out_conv_kwargs)
-
-    def forward(self, x, context = None):
-        b, c, h, w, k_dim, heads = *x.shape, self.key_dim, self.heads
-
-        q, k, v = (self.to_q(x), self.to_k(x), self.to_v(x))
-
-        q, k, v = map(lambda t: t.reshape(b, heads, -1, h * w), (q, k, v))
-
-        q, k = map(lambda x: x * (self.key_dim ** -0.25), (q, k))
-
-        if context is not None:
-            context = context.reshape(b, c, 1, -1)
-            ck, cv = self.to_k(context), self.to_v(context)
-            ck, cv = map(lambda t: t.reshape(b, heads, k_dim, -1), (ck, cv))
-            k = torch.cat((k, ck), dim=3)
-            v = torch.cat((v, cv), dim=3)
-
-        k = k.softmax(dim=-1)
-
-        if self.norm_queries:
-            q = q.softmax(dim=-2)
-
-        context = torch.einsum('bhdn,bhen->bhde', k, v)
-        out = torch.einsum('bhdn,bhde->bhen', q, context)
-        out = out.reshape(b, -1, h, w)
-        out = self.to_out(out)
-        return out
+from timm.models.layers import LayerNorm2d, to_2tuple
+from torch import Tensor
+from torch import linalg as LA
 
 
+class Stem(nn.Module):
+    """ Size-agnostic implementation of 2D image to patch embedding,
+        allowing input size to be adjusted during model forward operation
+    """
 
-
-# classes
-
-class PreNorm(nn.Module):
-    def __init__(self, dim, fn):
-        super().__init__()
-        self.norm = LayerNorm(dim)
-        self.fn = fn
-    def forward(self, x, **kwargs):
-        x = self.norm(x)
-        return self.fn(x, **kwargs)
-    
-class LayerNorm(nn.Module): # layernorm, but done in the channel dimension #1
-    def __init__(self, dim, eps = 1e-5):
-        super().__init__()
-        self.eps = eps
-        self.g = nn.Parameter(torch.ones(1, dim, 1, 1))
-        self.b = nn.Parameter(torch.zeros(1, dim, 1, 1))
-
-    def forward(self, x):
-        std = torch.var(x, dim = 1, unbiased = False, keepdim = True).sqrt()
-        mean = torch.mean(x, dim = 1, keepdim = True)
-        return (x - mean) / (std + self.eps) * self.g + self.b
-
-
-
-class FeedForward(nn.Module):
-    def __init__(self, dim, mult = 4, dropout = 0.):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(dim, dim * mult, 1),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Conv2d(dim * mult, dim, 1),
-            nn.Dropout(dropout)
-        )
-    def forward(self, x):
-        return self.net(x)
-
-class DepthWiseConv2d(nn.Module):
-    def __init__(self, dim_in, dim_out, kernel_size, padding, stride, bias = True):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(dim_in, dim_in, kernel_size = kernel_size, padding = padding, groups = dim_in, stride = stride, bias = bias),
-            nn.BatchNorm2d(dim_in),
-            nn.Conv2d(dim_in, dim_out, kernel_size = 1, bias = bias)
-        )
-    def forward(self, x):
-        return self.net(x)
-
-
-class Transformer(nn.Module):
-    def __init__(self, dim, heads, dim_head = 32, mlp_mult = 4, dropout = 0.):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-        for _ in range(1):
-            self.layers.append(nn.ModuleList([
-                ImageLinearAttention(chan = dim, chan_out = None, kernel_size = 3, padding = 1, stride = 1, key_dim = 32, value_dim = 32, heads = heads, norm_queries = True),
-                FeedForward(dim, mlp_mult, dropout = dropout)
-            ]))
-    def forward(self, x):
-        for attn, ff in self.layers:
-            x = attn(x) + x
-            x = ff(x) + x
-        return x
-
-class CLTV(nn.Module):
     def __init__(
-        self,
-        *,
-        num_classes,
-        emb_dim = 64,
-        emb_kernel = 7,
-        emb_stride = 4,
-        heads = 1,
-        depth = 1,
-        mlp_mult = 4,
-        dropout = 0.
+            self,
+            in_chs=3,
+            out_chs=96,
+            stride=4,
+            norm_layer=LayerNorm2d,
     ):
         super().__init__()
-        kwargs = dict(locals())
-
-        dim = int(emb_dim/2)
-        self.conv = nn.Sequential(
-            nn.Conv2d(3, int(dim/2), 3, 1, 1),
-            nn.Conv2d(int(dim/2), dim, 3, 1, 1)
+        stride = to_2tuple(stride)
+        self.stride = stride
+        self.in_chs = in_chs
+        self.out_chs = out_chs
+        assert stride[0] == 4  # only setup for stride==4
+        self.conv = nn.Conv2d(
+            in_chs,
+            out_chs,
+            kernel_size=7,
+            stride=stride,
+            padding=3,
         )
-                
-        
-        self.layers = nn.ModuleList([])
+        self.norm = norm_layer(out_chs)
 
-        for _ in range(depth):
-            self.layers.append(nn.Sequential(
-                nn.Conv2d(dim, emb_dim, kernel_size = emb_kernel, padding = emb_kernel// 2, stride = emb_stride),
-                LayerNorm(emb_dim),
-                Transformer(dim = emb_dim, heads = heads, mlp_mult = mlp_mult, dropout = dropout)
-            ))
-
-
-            dim = emb_dim
-
-        
-        self.head = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            Rearrange('... () () -> ...'),
-            nn.Linear(dim, num_classes)
-        )
-        
-    def forward(self, x):
+    def forward(self, x: Tensor):
+        B, C, H, W = x.shape
+        x = F.pad(x, (0, (self.stride[1] - W % self.stride[1]) % self.stride[1]))
+        x = F.pad(x, (0, 0, 0, (self.stride[0] - H % self.stride[0]) % self.stride[0]))
         x = self.conv(x)
+        x = self.norm(x)
+        return x
 
-        for cnn, norm, transformer in self.layers:
-            x = cnn(x)
-            x = norm(x)
-            x = transformer(x)
+class ConvPosEnc(nn.Module):
+    def __init__(self, dim: int, k: int = 3, act: bool = False):
+        super(ConvPosEnc, self).__init__()
+
+        self.proj = nn.Conv2d(dim, dim, k, 1, k // 2, groups=dim)
+        self.act = nn.GELU() if act else nn.Identity()
+
+    def forward(self, x: Tensor):
+        feat = self.proj(x)
+        x = x + self.act(feat)
+        return x
+
+# stripped timm impl
+
+from functools import partial
+
+from itertools import repeat
+import collections.abc
 
 
-        
-        return self.head(x)
-        
-        
-def pair(t):
-    return t if isinstance(t, tuple) else (t, t)        
+# From PyTorch internals
+def _ntuple(n):
+    def parse(x):
+        if isinstance(x, collections.abc.Iterable) and not isinstance(x, str):
+            return tuple(x)
+        return tuple(repeat(x, n))
+    return parse
 
-class PreNorm(nn.Module):
-    def __init__(self, dim, fn):
-        super().__init__()
-        self.norm = nn.LayerNorm(dim)
-        self.fn = fn
-    def forward(self, x, **kwargs):
-        return self.fn(self.norm(x), **kwargs)
 
-class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, dropout = 0.):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
-            nn.Dropout(dropout)
-        )
+to_1tuple = _ntuple(1)
+to_2tuple = _ntuple(2)
+to_3tuple = _ntuple(3)
+to_4tuple = _ntuple(4)
+to_ntuple = _ntuple
+
+
+def drop_path(x, drop_prob: float = 0., training: bool = False, scale_by_keep: bool = True):
+    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
+    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
+    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
+    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
+    'survival rate' as the argument.
+    """
+    if drop_prob == 0. or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+    random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
+    if keep_prob > 0.0 and scale_by_keep:
+        random_tensor.div_(keep_prob)
+    return x * random_tensor
+
+
+class DropPath(nn.Module):
+    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
+    """
+    def __init__(self, drop_prob: float = 0., scale_by_keep: bool = True):
+        super(DropPath, self).__init__()
+        self.drop_prob = drop_prob
+        self.scale_by_keep = scale_by_keep
+
     def forward(self, x):
-        return self.net(x)
+        return drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
+
+    def extra_repr(self):
+        return f'drop_prob={round(self.drop_prob,3):0.3f}'
 
 class Attention(nn.Module):
-    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
         super().__init__()
-        inner_dim = dim_head *  heads
-        project_out = not (heads == 1 and dim_head == dim)
+        assert dim % num_heads == 0, 'dim should be divisible by num_heads'
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
 
-        self.heads = heads
-        self.scale = dim_head ** -0.5
-
-        self.attend = nn.Softmax(dim = -1)
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False)
-
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim),
-            nn.Dropout(dropout)
-        ) if project_out else nn.Identity()
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x):
-        b, n, _, h = *x.shape, self.heads
-        qkv = self.to_qkv(x).chunk(3, dim = -1)
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
 
-        dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
 
-        attn = self.attend(dots)
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
 
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        return self.to_out(out)
 
-class Transformer(nn.Module):
-    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
+class LayerScale(nn.Module):
+    def __init__(self, dim, init_values=1e-5, inplace=False):
         super().__init__()
-        self.layers = nn.ModuleList([])
-        for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
-            ]))
+        self.inplace = inplace
+        self.gamma = nn.Parameter(init_values * torch.ones(dim))
+
     def forward(self, x):
-        for attn, ff in self.layers:
-            x = attn(x) + x
-            x = ff(x) + x
+        return x.mul_(self.gamma) if self.inplace else x * self.gamma
+
+class Mlp(nn.Module):
+    """ MLP as used in Vision Transformer, MLP-Mixer and related networks
+    """
+    def __init__(
+            self,
+            in_features,
+            hidden_features=None,
+            out_features=None,
+            act_layer=nn.GELU,
+            bias=True,
+            drop=0.,
+            use_conv=False,
+    ):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        bias = to_2tuple(bias)
+        drop_probs = to_2tuple(drop)
+        linear_layer = partial(nn.Conv2d, kernel_size=1) if use_conv else nn.Linear
+
+        self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
+        self.act = act_layer()
+        self.drop1 = nn.Dropout(drop_probs[0])
+        self.fc2 = linear_layer(hidden_features, out_features, bias=bias[1])
+        self.drop2 = nn.Dropout(drop_probs[1])
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop1(x)
+        x = self.fc2(x)
+        x = self.drop2(x)
+        return x
+
+class Tlp(nn.Module):
+    """ three layer mlp
+    """
+    def __init__(
+            self,
+            in_features,
+            hidden_features=None,
+            out_features=None,
+            act_layer=nn.GELU,
+            bias=True,
+            drop=0.,
+            use_conv=False,
+    ):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        bias = to_3tuple(bias)
+        drop_probs = to_3tuple(drop)
+        linear_layer = partial(nn.Conv2d, kernel_size=1) if use_conv else nn.Linear
+
+        self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
+        self.act1 = act_layer()
+        self.drop1 = nn.Dropout(drop_probs[0])
+        
+        self.fc2 = linear_layer(hidden_features, hidden_features, bias=bias[1])
+        self.act2 = act_layer()
+        self.drop2 = nn.Dropout(drop_probs[1])
+        
+        self.fc3 = linear_layer(hidden_features, out_features, bias=bias[2])
+        self.drop3 = nn.Dropout(drop_probs[2])
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act1(x)
+        x = self.drop1(x)
+        
+        x = self.fc2(x)
+        x = self.act2(x)
+        x = self.drop2(x)
+        
+        x = self.fc3(x)
+        x = self.drop3(x)
+        return x
+
+
+class TransformerBlock(nn.Module):
+
+    def __init__(
+            self,
+            dim,
+            num_heads=8,
+            mlp_ratio=4.,
+            qkv_bias=False,
+            drop=0.,
+            attn_drop=0.,
+            init_values=None,
+            drop_path=0.,
+            act_layer=nn.GELU,
+            norm_layer=nn.LayerNorm
+    ):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.ls1 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
+        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
+        self.drop_path1 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+
+        self.norm2 = norm_layer(dim)
+        self.mlp = Mlp(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=drop)
+        #self.mlp = Tlp(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=drop)
+        self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
+        self.drop_path2 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+
+    def forward(self, x):
+        x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
+        x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         return x
 
 class ViT(nn.Module):
-    def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0.):
+    def __init__(
+        self,
+        in_chs = 3,
+        dim=256,
+        num_classes=10,
+        depth = 6,
+        drop_path = 0.2,
+        drop = 0.1
+    ):
         super().__init__()
-        image_height, image_width = pair(image_size)
-        patch_height, patch_width = pair(patch_size)
 
-        assert image_height % patch_height == 0 and image_width % patch_width == 0, 'Image dimensions must be divisible by the patch size.'
+        self.stem = Stem(in_chs = in_chs, out_chs = dim)
+        self.cpe = ConvPosEnc(dim=dim, k=3)
 
-        num_patches = (image_height // patch_height) * (image_width // patch_width)
-        patch_dim = channels * patch_height * patch_width
-        assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
+        blocks = []
 
-        self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_height, p2 = patch_width),
-            nn.Linear(patch_dim, dim),
-        )
+        for i in range(depth):
+            blocks.append(
+                nn.Sequential(
+                    TransformerBlock(dim, num_heads=8, qkv_bias=True, drop_path=drop_path, drop = drop, attn_drop = drop),
 
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))
-        self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
-        self.dropout = nn.Dropout(emb_dropout)
+                )
+            )
 
-        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
+        self.blocks = nn.Sequential(*blocks)
+        self.depth = depth
+        self.norm = nn.LayerNorm(dim)
+        self.head = nn.Linear(dim, num_classes)
 
-        self.pool = pool
-        self.to_latent = nn.Identity()
+    def forward(self,x):
+        x = self.stem(x)
 
-        self.mlp_head = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, num_classes)
-        )
+        # B, C, H, W -> B, N, C
+        x=self.cpe(x).flatten(2).transpose(1, 2)
 
-    def forward(self, img):
-        x = self.to_patch_embedding(img)
-        b, n, _ = x.shape
+        x = self.blocks(x)
+        
+        x = x.mean(dim=1)
+        x = self.norm(x)
+        x = self.head(x)
+        return x
 
-        cls_tokens = repeat(self.cls_token, '() n d -> b n d', b = b)
-        x = torch.cat((cls_tokens, x), dim=1)
-        x += self.pos_embedding[:, :(n + 1)]
-        x = self.dropout(x)
-
-        x = self.transformer(x)
-
-        x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
-
-        x = self.to_latent(x)
-        return self.mlp_head(x)
         
         
         
