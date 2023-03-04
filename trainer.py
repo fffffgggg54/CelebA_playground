@@ -100,20 +100,28 @@ def zero_grad(p, set_to_none=False):
     return p
 
 class getDecisionBoundary(nn.Module):
-    def __init__(self, initial_threshold = 0.5, alpha = 1e-3, threshold_min = 0.2, threshold_max = 0.8):
+    def __init__(self, initial_threshold = 0.5, lr = 1e-3, threshold_min = 0.2, threshold_max = 0.8):
         super().__init__()
         self.initial_threshold = initial_threshold
         self.thresholdPerClass = None
-        self.alpha = alpha
+        self.needs_init = True
+        self.lr = lr
         self.threshold_min = threshold_min
         self.threshold_max = threshold_max
         
     def forward(self, preds, targs):
-        if self.thresholdPerClass == None:
+        if self.needs_init:
             classCount = preds.size(dim=1)
             currDevice = preds.device
-            self.thresholdPerClass = torch.ones(classCount, device=currDevice, requires_grad=True).to(torch.float64) * self.initial_threshold
-            self.thresholdPerClass.retain_grad()
+            if self.thresholdPerClass == None:
+                self.thresholdPerClass = torch.ones(classCount, device=currDevice, requires_grad=True).to(torch.float64) * self.initial_threshold
+            else:
+                self.thresholdPerClass = torch.ones(classCount, device=currDevice, requires_grad=True).to(torch.float64) * self.thresholdPerClass
+            self.needs_init = False
+        
+        # need fp64
+        self.thresholdPerClass.retain_grad()
+        self.thresholdPerClass = self.thresholdPerClass.to(torch.float64)
         if preds.requires_grad:
             preds = preds.detach()
             
@@ -122,11 +130,12 @@ class getDecisionBoundary(nn.Module):
 
             numToMax = metrics[:,8].sum()
 
-            
+            # TODO clean up this optimization phase
             numToMax.backward()
             with torch.no_grad():
-                new_threshold = self.alpha * self.thresholdPerClass.grad
+                new_threshold = self.lr * self.thresholdPerClass.grad
                 self.thresholdPerClass.add_(new_threshold)
+                #self.thresholdPerClass = self.thresholdPerClass.clamp(min=self.threshold_min, max=self.threshold_max)
             
             self.thresholdPerClass = zero_grad(self.thresholdPerClass)
             self.thresholdPerClass = self.thresholdPerClass.detach()
