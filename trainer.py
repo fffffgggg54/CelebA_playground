@@ -340,7 +340,7 @@ num_classes = 40
 weight_decay = 2e-3
 resume_epoch = 0
 
-device = 'cuda:0'
+device = 'cpu'
 
 def getDataLoader(dataset):
     return torch.utils.data.DataLoader(dataset,
@@ -457,8 +457,8 @@ if __name__ == '__main__':
             param.requires_grad = True
     
     model=model.to(device)
-    #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
-    criterion = SPLCModified()
+    criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    #criterion = SPLCModified()
     #criterion = Hill()
     #criterion = nn.BCEWithLogitsLoss()
     #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -509,9 +509,9 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    #loss = criterion(outputs,labels)
-                    criterion.tau_per_class = boundary
-                    loss = criterion(outputs, labels, epoch)
+                    loss = criterion(outputs,labels)
+                    #criterion.tau_per_class = boundary
+                    #loss = criterion(outputs, labels, epoch)
                     if loss.isnan():
                         print(outputs.cpu())
                         print(outputs.cpu().sigmoid())
