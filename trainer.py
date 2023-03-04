@@ -545,14 +545,15 @@ if __name__ == '__main__':
             if (phase == 'val'):
                 #torch.set_printoptions(profile="full")
                 AvgAccuracy = cm_tracker.get_full_metrics()
-                LabelledAccuracy = list(zip(AvgAccuracy.tolist(), tagNames, boundaryCalculator.thresholdPerClass))
+                AvgAccuracyUnmod = cm_tracker_unmod.get_full_metrics()
+                LabelledAccuracy = list(zip(AvgAccuracy.tolist(), AvgAccuracyUnmod.tolist(), tagNames, boundaryCalculator.thresholdPerClass))
                 LabelledAccuracySorted = sorted(LabelledAccuracy, key = lambda x: x[0][8], reverse=True)
                 MeanStackedAccuracy = cm_tracker.get_aggregate_metrics()
                 MeanStackedAccuracyStored = MeanStackedAccuracy[4:]
                 print(*LabelledAccuracySorted, sep="\n")
                 #torch.set_printoptions(profile="default")
                 print(MeanStackedAccuracy)
-                
+                print(cm_tracker_unmod.get_aggregate_metrics())
                 
                 
                 mAP_score_regular = np.mean(AP_regular)
