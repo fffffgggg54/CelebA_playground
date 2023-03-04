@@ -236,6 +236,56 @@ class AsymmetricLoss(nn.Module):
 
         return -loss.sum()
 
+class SPLCModified(nn.Module):
+
+    def __init__(
+        self,
+        tau: float = 0.6,
+        change_epoch: int = 1,
+        margin: float = 1.0,
+        gamma: float = 2.0,
+        reduction: str = 'sum',
+        loss_fn: nn.Module = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    ) -> None:
+        super().__init__()
+        self.tau = tau
+        self.tau_per_class = None
+        self.change_epoch = change_epoch
+        self.margin = margin
+        self.gamma = gamma
+        self.reduction = reduction
+        self.loss_fn = loss_fn
+        if hasattr(self.loss_fn, 'reduction'):
+            self.loss_fn.reduction = self.reduction
+
+
+    def forward(
+        self, 
+        logits: torch.Tensor, 
+        targets: torch.LongTensor,
+        epoch
+    ) -> torch.Tensor:
+        if self.tau_per_class == None:
+            classCount = logits.size(dim=1)
+            currDevice = logits.device
+            self.tau_per_class = torch.ones(classCount, device=currDevice) * self.tau
+
+        # Subtract margin for positive logits
+        logits = torch.where(targets == 1, logits-self.margin, logits)
+        
+        pred = torch.sigmoid(logits)
+
+        # SPLC missing label correction
+        if epoch >= self.change_epoch:
+            targets = torch.where(
+                pred > self.tau_per_class,
+                torch.tensor(1).to(pred), 
+                targets
+            )
+
+        loss = self.loss_fn(logits, targets)
+
+        return loss
 
 class MetricTracker():
     def __init__(self):
@@ -290,7 +340,7 @@ num_classes = 40
 weight_decay = 2e-3
 resume_epoch = 0
 
-device = 'cpu'
+device = 'cuda:0'
 
 def getDataLoader(dataset):
     return torch.utils.data.DataLoader(dataset,
@@ -407,14 +457,15 @@ if __name__ == '__main__':
             param.requires_grad = True
     
     model=model.to(device)
-    criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    criterion = SPLCModified()
     #criterion = Hill()
     #criterion = nn.BCEWithLogitsLoss()
     #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     optimizer = timm.optim.Adan(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,
         max_lr=lr, 
-        steps_per_epoch=len(dataloaders['train']), 
+        steps_per_epoch=len(dataloaders['train']),
         epochs=num_epochs, 
         pct_start=lr_warmup_epochs/num_epochs
     )
@@ -458,7 +509,9 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    loss = criterion(outputs,labels)
+                    #loss = criterion(outputs,labels)
+                    criterion.tau_per_class = boundary
+                    loss = criterion(outputs, labels, epoch)
                     if loss.isnan():
                         print(outputs.cpu())
                         print(outputs.cpu().sigmoid())
