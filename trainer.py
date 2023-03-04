@@ -466,8 +466,8 @@ if __name__ == '__main__':
             param.requires_grad = True
     
     model=model.to(device)
-    #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
-    criterion = SPLCModified(margin = 0.0, loss_fn = nn.BCEWithLogitsLoss())
+    criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    #criterion = SPLCModified(margin = 0.0, loss_fn = nn.BCEWithLogitsLoss())
     #criterion = Hill()
     #criterion = nn.BCEWithLogitsLoss()
     #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -518,9 +518,9 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    #loss = criterion(outputs,labels)
-                    criterion.tau_per_class = boundary + 0.1
-                    loss = criterion(outputs, labels, epoch)
+                    loss = criterion(outputs,labels)
+                    #criterion.tau_per_class = boundary + 0.1
+                    #loss = criterion(outputs, labels, epoch)
                     if loss.isnan():
                         print(outputs.cpu())
                         print(outputs.cpu().sigmoid())
