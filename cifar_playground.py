@@ -163,7 +163,7 @@ def zero_grad(p, set_to_none=False):
 
 # gradient based boundary calculation
 class getDecisionBoundary(nn.Module):
-    def __init__(self, initial_threshold = 0.5, lr = 3e-4, threshold_min = 0.2, threshold_max = 0.8):
+    def __init__(self, initial_threshold = 0.0, lr = 3e-4, threshold_min = 0.2, threshold_max = 0.8):
         super().__init__()
         self.initial_threshold = initial_threshold
         self.thresholdPerClass = None
@@ -184,15 +184,18 @@ class getDecisionBoundary(nn.Module):
             preds = preds.detach()
             
             predsModified = stepAtThreshold(preds, self.thresholdPerClass)
+            #predsModified = (preds).softmax(1) * self.thresholdPerClass
             metrics = getAccuracy(predsModified, targs)
 
-            numToMax = metrics[:,8].sum()
+            #numToMax = metrics[:,8].sum()
+            numToMax = ((predsModified - targs) ** 2).sum()
 
             # TODO clean up this optimization phase
             numToMax.backward()
             with torch.no_grad():
                 new_threshold = self.lr * self.thresholdPerClass.grad
-                self.thresholdPerClass.add_(new_threshold)
+                #self.thresholdPerClass.add_(new_threshold)
+                self.thresholdPerClass.add_(-new_threshold)
                 #self.thresholdPerClass = self.thresholdPerClass.clamp(min=self.threshold_min, max=self.threshold_max)
             
             self.thresholdPerClass = zero_grad(self.thresholdPerClass)
@@ -201,8 +204,9 @@ class getDecisionBoundary(nn.Module):
         return self.thresholdPerClass.detach()
 
 if __name__ == '__main__':
+    torch.set_num_threads(2)
     torch.set_default_dtype(torch.float32)
-    #'''
+    '''
     train_ds = torchvision.datasets.CIFAR100(
         './data/',
         train=True, 
@@ -232,20 +236,20 @@ if __name__ == '__main__':
             transforms.ToTensor(),
         ])
     )
-    '''
+    #'''
 
     lr = 1e-3
     num_epochs = 100
-    batch_size = 64
-    grad_acc_epochs = 8
+    batch_size = 512
+    grad_acc_epochs = 1
     num_classes = len(train_ds.classes)
     weight_decay = 2e-2
     
     torch.set_printoptions(linewidth = 200, sci_mode = False)
     
-    device = torch.device("cuda:0")
+    #device = torch.device("cuda:0")
     #device = torch.device("mps")
-    #device = torch.device("cpu")
+    device = torch.device("cpu")
 
     datasets = {'train':train_ds,'val':test_ds}
     dataloaders = {x: getDataLoader(datasets[x]) for x in datasets}
@@ -253,7 +257,7 @@ if __name__ == '__main__':
     """# important stuff"""
 
     #model = timm.create_model('resnet_10t', pretrained=False, num_classes = num_classes)
-    model = mz.resnet20(num_classes=num_classes)
+    model = mz.resnet8(num_classes=num_classes)
 
     #model = mz.ViT(dim=128, num_classes=num_classes, depth=6, drop_path=0.1, drop=0.1)
 
@@ -287,18 +291,18 @@ if __name__ == '__main__':
         steps_per_epoch=len(dataloaders['train'])
     )
     
-    boundaryCalculator = getDecisionBoundary(initial_threshold = 0.5, lr = 3e-3)
+    boundaryCalculator = getDecisionBoundary(lr = 3e-5)
     
     cycleTime = time.time()
     epochTime = time.time()
-    stepsPerPrintout = 50
+    stepsPerPrintout = 10
     for epoch in range(num_epochs):
         
         datasets['train'].transform = transforms.Compose([
-            transforms.RandAugment(magnitude = epoch, num_magnitude_bins = int(num_epochs * 1.4)),
+            transforms.RandAugment(magnitude = epoch, num_magnitude_bins = int(num_epochs * 3.0)),
             #transforms.RandAugment(),
             transforms.RandomHorizontalFlip(),
-            transforms.TrivialAugmentWide(),
+            #transforms.TrivialAugmentWide(),
             transforms.ToTensor(),
             #transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ])
@@ -342,7 +346,7 @@ if __name__ == '__main__':
                             optimizer.zero_grad()
                         scheduler.step()
                     multiAccuracy = getAccuracy(outputs,labelsOnehot)
-                    ma_2 = cm_tracker.update(outputs.softmax(1),labelsOnehot)
+                    ma_2 = cm_tracker.update(predsModified.softmax(1),labelsOnehot)
                     accuracy = mAP(
                         labelsOnehot.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
