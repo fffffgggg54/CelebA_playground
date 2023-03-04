@@ -257,16 +257,7 @@ class MetricTracker():
             return torch.column_stack([TP, FN, FP, TN, Precall, Nrecall, Pprecision, Nprecision, P4])
         
     def get_aggregate_metrics(self):
-        with torch.no_grad():
-            TP, FN, FP, TN = (self.running_confusion_matrix / self.sampleCount).mean(dim=1)
-            
-            Precall = TP / (TP + FN + self.epsilon)
-            Nrecall = TN / (TN + FP + self.epsilon)
-            Pprecision = TP / (TP + FP + self.epsilon)
-            Nprecision = TN / (TN + FN + self.epsilon)
-            
-            P4 = (4 * TP * TN) / ((4 * TN * TP) + (TN + TP) * (FP + FN) + self.epsilon)
-            return torch.stack([TP, FN, FP, TN, Precall, Nrecall, Pprecision, Nprecision, P4])
+        return self.get_full_metrics().mean(dim=0)
     
     def update(self, preds, targs):
         self.sampleCount += targs.size(dim=0)
@@ -408,7 +399,7 @@ if __name__ == '__main__':
     '''
     #model = mz.add_ml_decoder_head(model)
     
-    print(model)
+    
     
     if (resume_epoch > 0):
         model.load_state_dict(torch.load('./models/saved_model_epoch_' + str(resume_epoch - 1) + '.pth'))
@@ -439,6 +430,7 @@ if __name__ == '__main__':
         AccuracyRunning = []
         for phase in ['train', 'val']:
             cm_tracker = MetricTracker()
+            cm_tracker_unmod = MetricTracker()
             if phase == 'train':
                 model.train()  # Set model to training mode
                 #if (hasTPU == True): xm.master_print("training set")
@@ -461,6 +453,7 @@ if __name__ == '__main__':
                     boundary = boundaryCalculator(preds, labels)
                     predsModified = (preds > boundary).float()
                     multiAccuracy = cm_tracker.update(predsModified, labels)
+                    multiAccuracyUnmod = cm_tracker_unmod.update(preds, labels)
                     accuracy = mAP(
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
@@ -489,7 +482,7 @@ if __name__ == '__main__':
                         imagesPerSecond = (batch_size * stepsPerPrintout)/(time.time() - cycleTime)
                         cycleTime = time.time()
                         torch.set_printoptions(linewidth = 200, sci_mode = False)
-                        print(f"[{epoch}/{num_epochs}][{i}/{len(dataloaders[phase])}]\tLoss: {loss:.4f}\tImages/Second: {imagesPerSecond:.4f}\tAccuracy: {accuracy:.2f}\t {[f'{num:.4f}' for num in (multiAccuracy * 100).tolist()]}")
+                        print(f"[{epoch}/{num_epochs}][{i}/{len(dataloaders[phase])}]\tLoss: {loss:.4f}\tImages/Second: {imagesPerSecond:.4f}\tAccuracy: {accuracy:.2f}\t {[f'{num:.2f}' for num in (multiAccuracy * 100).tolist()]}\t{[f'{num:.2f}' for num in (multiAccuracyUnmod * 100).tolist()]}")
                         torch.set_printoptions(profile='default')
                     
                     if phase == 'val':
@@ -516,3 +509,4 @@ if __name__ == '__main__':
 
         print(f'finished epoch {epoch} in {time.time()-epochTime}')
         epochTime = time.time()
+    print(model)
