@@ -466,8 +466,8 @@ if __name__ == '__main__':
             param.requires_grad = True
     
     model=model.to(device)
-    criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
-    #criterion = SPLCModified()
+    #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    criterion = SPLCModified()
     #criterion = Hill()
     #criterion = nn.BCEWithLogitsLoss()
     #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
