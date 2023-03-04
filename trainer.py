@@ -349,7 +349,7 @@ num_classes = 40
 weight_decay = 2e-3
 resume_epoch = 0
 
-device = 'cpu'
+device = 'cuda:0'
 
 def getDataLoader(dataset):
     return torch.utils.data.DataLoader(dataset,
@@ -518,9 +518,9 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    loss = criterion(outputs,labels)
-                    #criterion.tau_per_class = boundary
-                    #loss = criterion(outputs, labels, epoch)
+                    #loss = criterion(outputs,labels)
+                    criterion.tau_per_class = boundary + 0.1
+                    loss = criterion(outputs, labels, epoch)
                     if loss.isnan():
                         print(outputs.cpu())
                         print(outputs.cpu().sigmoid())
