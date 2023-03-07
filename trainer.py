@@ -420,7 +420,7 @@ if __name__ == '__main__':
         'train', 
         download=True,
         transform=transforms.Compose([
-            transforms.Resize((64,64)),
+            #transforms.Resize((64,64)),
             transforms.RandAugment(),
             #transforms.TrivialAugmentWide(),
             transforms.RandomHorizontalFlip(),
@@ -432,7 +432,7 @@ if __name__ == '__main__':
         'valid', 
         download=True,
         transform=transforms.Compose([
-            transforms.Resize((64,64)),
+            #transforms.Resize((64,64)),
             transforms.ToTensor(),
         ])
     )
@@ -488,7 +488,7 @@ if __name__ == '__main__':
     )
     '''
     
-    model = mz.resnet8(num_classes = num_classes)
+    model = mz.resnet32(num_classes = num_classes)
     
     '''
     model = mz.ViT(
