@@ -390,8 +390,8 @@ class MetricTracker():
 lr = 3e-3
 lr_warmup_epochs = 5
 num_epochs = 100
-batch_size = 256
-grad_acc_epochs = 1
+batch_size = 64
+grad_acc_epochs = 4
 num_classes = 40
 weight_decay = 2e-3
 resume_epoch = 0
