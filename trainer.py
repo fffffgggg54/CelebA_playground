@@ -100,7 +100,7 @@ def zero_grad(p, set_to_none=False):
     return p
 
 class getDecisionBoundary(nn.Module):
-    def __init__(self, initial_threshold = 0.5, lr = 1e-3, threshold_min = 0.2, threshold_max = 0.8):
+    def __init__(self, initial_threshold = 0.5, lr = 1e-4, threshold_min = 0.2, threshold_max = 0.8):
         super().__init__()
         self.initial_threshold = initial_threshold
         self.thresholdPerClass = None
