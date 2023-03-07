@@ -157,7 +157,7 @@ class Hill(nn.Module):
         gamma (float): Commonly used value same as Focal loss. Default: 2
     """
 
-    def __init__(self, lamb: float = 1.5, margin: float = 1.0, gamma: float = 2.0,  reduction: str = 'sum') -> None:
+    def __init__(self, lamb: float = 1.5, margin: float = 0.0, gamma: float = 2.0,  reduction: str = 'sum') -> None:
         super(Hill, self).__init__()
         self.lamb = lamb
         self.margin = margin
@@ -173,11 +173,13 @@ class Hill(nn.Module):
         Returns:
             torch.Tensor: loss
         """
-
+        
+        shift = torch.Tensor([0.95]).to(logits).logit()
+        
         # Calculating predicted probability
         logits_margin = logits - self.margin
-        pred_pos = torch.sigmoid(logits_margin)
-        pred_neg = torch.sigmoid(logits)
+        pred_pos = torch.sigmoid(logits_margin - shift)
+        pred_neg = torch.sigmoid(logits - shift)
 
         # Focal margin for postive loss
         pt = (1 - pred_pos) * targets + (1 - targets)
