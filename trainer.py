@@ -173,13 +173,11 @@ class Hill(nn.Module):
         Returns:
             torch.Tensor: loss
         """
-        
-        shift = torch.Tensor([0.95]).to(logits).logit()
-        
+
         # Calculating predicted probability
         logits_margin = logits - self.margin
-        pred_pos = torch.sigmoid(logits_margin - shift)
-        pred_neg = torch.sigmoid(logits - shift)
+        pred_pos = torch.sigmoid(logits_margin)
+        pred_neg = torch.sigmoid(logits)
 
         # Focal margin for postive loss
         pt = (1 - pred_pos) * targets + (1 - targets)
@@ -568,7 +566,7 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    loss = criterion(outputs,labels)
+                    loss = criterion(outputs-boundary.detach().logit(),labels)
                     #criterion.tau_per_class = boundary + 0.1
                     #loss = criterion(outputs, labels, epoch)
                     if loss.isnan():
