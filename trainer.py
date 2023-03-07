@@ -100,7 +100,7 @@ def zero_grad(p, set_to_none=False):
     return p
 
 class getDecisionBoundary(nn.Module):
-    def __init__(self, initial_threshold = 0.5, lr = 1e-4, threshold_min = 0.1, threshold_max = 0.9):
+    def __init__(self, initial_threshold = 0.5, lr = 1e-4, threshold_min = 0.2, threshold_max = 0.8):
         super().__init__()
         self.initial_threshold = initial_threshold
         self.thresholdPerClass = None
@@ -513,10 +513,10 @@ if __name__ == '__main__':
             param.requires_grad = True
     
     model=model.to(device)
-    #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
     #criterion = AsymmetricLossSigmoidMod(gamma_neg=0, gamma_pos=0, clip=0.0)
     #criterion = SPLCModified(margin = 0.0, loss_fn = nn.BCEWithLogitsLoss())
-    criterion = Hill()
+    #criterion = Hill()
     #criterion = nn.BCEWithLogitsLoss()
     #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     optimizer = timm.optim.Adan(model.parameters(), lr=lr, weight_decay=weight_decay)
