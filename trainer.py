@@ -245,6 +245,53 @@ class AsymmetricLoss(nn.Module):
 
         return -loss.sum()
 
+class AsymmetricLossSigmoidMod(nn.Module):
+    def __init__(self, gamma_neg=4, gamma_pos=1, clip=0.05, eps=1e-8, disable_torch_grad_focal_loss=True):
+        super().__init__()
+
+        self.gamma_neg = gamma_neg
+        self.gamma_pos = gamma_pos
+        self.clip = clip
+        self.disable_torch_grad_focal_loss = disable_torch_grad_focal_loss
+        self.eps = eps
+
+    def forward(self, x, y):
+        """"
+        Parameters
+        ----------
+        x: input logits
+        y: targets (multi-label binarized vector)
+        """
+
+        # Calculating Probabilities
+        x_sigmoid = torch.sigmoid(x)
+        xs_pos = x_sigmoid
+        xs_neg = 1 - x_sigmoid
+
+        # Asymmetric Clipping
+        if self.clip is not None and self.clip > 0:
+            xs_neg = (xs_neg + self.clip).clamp(max=1)
+
+        # Basic CE calculation
+        los_pos = y * torch.log(xs_pos.clamp(min=self.eps))
+        los_neg = (1 - y) * torch.log(xs_neg.clamp(min=self.eps))
+        loss = los_pos + los_neg
+
+        # Asymmetric Focusing
+        if self.gamma_neg > 0 or self.gamma_pos > 0:
+            if self.disable_torch_grad_focal_loss:
+                torch.set_grad_enabled(False)
+            pt0 = xs_pos * y
+            pt1 = xs_neg * (1 - y)  # pt = p if t > 0 else 1-p
+            pt = pt0 + pt1
+            one_sided_gamma = self.gamma_pos * y + self.gamma_neg * (1 - y)
+            one_sided_w = torch.pow(1 - pt, one_sided_gamma)
+            if self.disable_torch_grad_focal_loss:
+                torch.set_grad_enabled(True)
+            loss *= one_sided_w
+
+        return -loss.sum()
+
 class SPLCModified(nn.Module):
 
     def __init__(
@@ -349,7 +396,7 @@ num_classes = 40
 weight_decay = 2e-3
 resume_epoch = 0
 
-device = 'cuda:0'
+device = 'cuda:1'
 
 def getDataLoader(dataset):
     return torch.utils.data.DataLoader(dataset,
@@ -466,9 +513,10 @@ if __name__ == '__main__':
             param.requires_grad = True
     
     model=model.to(device)
-    criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    #criterion = AsymmetricLossSigmoidMod(gamma_neg=0, gamma_pos=0, clip=0.0)
     #criterion = SPLCModified(margin = 0.0, loss_fn = nn.BCEWithLogitsLoss())
-    #criterion = Hill()
+    criterion = Hill()
     #criterion = nn.BCEWithLogitsLoss()
     #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     optimizer = timm.optim.Adan(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -496,7 +544,7 @@ if __name__ == '__main__':
                 #if (hasTPU == True): xm.master_print("training set")
                 print("training set")
             else:
-                torch.save(model.state_dict(), './models/saved_model_epoch_' + str(epoch) + '.pth')
+                #torch.save(model.state_dict(), './models/saved_model_epoch_' + str(epoch) + '.pth')
                 model.eval()   # Set model to evaluate mode
                 
                 print("validation set")
