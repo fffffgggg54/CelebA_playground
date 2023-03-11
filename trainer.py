@@ -200,7 +200,7 @@ class Hill(nn.Module):
 class SymHill(nn.Module):
     
 
-    def __init__(self reduction: str = 'sum') -> None:
+    def __init__(self, reduction: str = 'sum') -> None:
         super().__init__()
 
     def forward(self, logits, targets):
