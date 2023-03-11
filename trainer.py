@@ -214,7 +214,7 @@ class SymHill(nn.Module):
         """
 
         # Calculating Probabilities
-        x_sigmoid = torch.sigmoid(x)
+        x_sigmoid = torch.sigmoid(logits)
         xs_pos = x_sigmoid
         xs_neg = 1 - x_sigmoid
 
