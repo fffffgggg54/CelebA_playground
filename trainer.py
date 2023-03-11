@@ -197,6 +197,39 @@ class Hill(nn.Module):
         else:
             return loss
 
+class SymHill(nn.Module):
+    
+
+    def __init__(self reduction: str = 'sum') -> None:
+        super().__init__()
+
+    def forward(self, logits, targets):
+        """
+        call function as forward
+        Args:
+            logits : The predicted logits before sigmoid with shape of :math:`(N, C)`
+            targets : Multi-label binarized vector with shape of :math:`(N, C)`
+        Returns:
+            torch.Tensor: loss
+        """
+
+        # Calculating Probabilities
+        x_sigmoid = torch.sigmoid(x)
+        xs_pos = x_sigmoid
+        xs_neg = 1 - x_sigmoid
+
+        # Symmetric Hill loss calculation
+        los_pos = targets * (xs_pos + 0.5) * (1 - xs_pos) ** 2
+        los_neg = (1 - targets) * (xs_neg + 0.5) * (1 - xs_neg) ** 2
+
+        loss = los_pos + los_neg
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
 
 class AsymmetricLoss(nn.Module):
     def __init__(self, gamma_neg=4, gamma_pos=1, clip=0.05, eps=1e-8, disable_torch_grad_focal_loss=True):
@@ -390,8 +423,8 @@ class MetricTracker():
 lr = 3e-3
 lr_warmup_epochs = 5
 num_epochs = 100
-batch_size = 64
-grad_acc_epochs = 4
+batch_size = 256
+grad_acc_epochs = 1
 num_classes = 40
 weight_decay = 2e-3
 resume_epoch = 0
@@ -420,7 +453,7 @@ if __name__ == '__main__':
         'train', 
         download=True,
         transform=transforms.Compose([
-            #transforms.Resize((64,64)),
+            transforms.Resize((64,64)),
             transforms.RandAugment(),
             #transforms.TrivialAugmentWide(),
             transforms.RandomHorizontalFlip(),
@@ -432,7 +465,7 @@ if __name__ == '__main__':
         'valid', 
         download=True,
         transform=transforms.Compose([
-            #transforms.Resize((64,64)),
+            transforms.Resize((64,64)),
             transforms.ToTensor(),
         ])
     )
@@ -488,7 +521,7 @@ if __name__ == '__main__':
     )
     '''
     
-    model = mz.resnet32(num_classes = num_classes)
+    model = mz.resnet8(num_classes = num_classes)
     
     '''
     model = mz.ViT(
@@ -513,10 +546,11 @@ if __name__ == '__main__':
             param.requires_grad = True
     
     model=model.to(device)
-    criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
     #criterion = AsymmetricLossSigmoidMod(gamma_neg=0, gamma_pos=0, clip=0.0)
     #criterion = SPLCModified(margin = 0.0, loss_fn = nn.BCEWithLogitsLoss())
     #criterion = Hill()
+    criterion = SymHill()
     #criterion = nn.BCEWithLogitsLoss()
     #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     optimizer = timm.optim.Adan(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -566,7 +600,8 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    loss = criterion(outputs - torch.special.logit(boundary.detach(), eps=1e-12), labels)
+                    loss = criterion(outputs, labels)
+                    #loss = criterion(outputs - torch.special.logit(boundary.detach(), eps=1e-12), labels)
                     #criterion.tau_per_class = boundary + 0.1
                     #loss = criterion(outputs, labels, epoch)
                     if loss.isnan():
