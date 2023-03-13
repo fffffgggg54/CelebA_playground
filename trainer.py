@@ -605,7 +605,8 @@ if __name__ == '__main__':
                     targs = ((1-labels)*stepAtThreshold(labels, boundary.detach(), base=10) + labels).detach().clone() # soft SPLC
                     #loss = criterion(outputs, labels)
                     
-                    loss = criterion(outputs, targs) if epoch > 0 else criterion(outputs, labels)
+                    #loss = criterion(outputs, targs) if epoch > 0 else criterion(outputs, labels)
+                    loss = criterion(outputs + torch.special.logit(boundary.detach(), eps=1e-12), targs) if epoch > 0 else criterion(outputs, labels)
                     #loss = criterion(outputs + torch.special.logit(boundary.detach(), eps=1e-12), labels)
                     #criterion.tau_per_class = boundary + 0.1
                     #loss = criterion(outputs, labels, epoch)
