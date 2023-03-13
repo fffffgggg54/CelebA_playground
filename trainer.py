@@ -602,7 +602,7 @@ if __name__ == '__main__':
                         outputs.sigmoid().numpy(force=True)
                     )
                     #loss = criterion(outputs, labels)
-                    loss = criterion(outputs, (1-labels)*stepAtThreshold(labels, boundary.detach()) + labels) if epoch > 0 else criterion(outputs, labels)
+                    loss = criterion(outputs, (1-labels)*stepAtThreshold(labels, torch.Tensor(boundary.detach(), requires_grad=False)) + labels) if epoch > 0 else criterion(outputs, labels)
                     #loss = criterion(outputs + torch.special.logit(boundary.detach(), eps=1e-12), labels)
                     #criterion.tau_per_class = boundary + 0.1
                     #loss = criterion(outputs, labels, epoch)
