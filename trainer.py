@@ -100,7 +100,7 @@ def zero_grad(p, set_to_none=False):
     return p
 
 class getDecisionBoundary(nn.Module):
-    def __init__(self, initial_threshold = 0.5, lr = 3e-4, threshold_min = 0.2, threshold_max = 0.8):
+    def __init__(self, initial_threshold = 0.5, lr = 1e-4, threshold_min = 0.2, threshold_max = 0.8):
         super().__init__()
         self.initial_threshold = initial_threshold
         self.thresholdPerClass = None
@@ -421,10 +421,10 @@ class MetricTracker():
             
         return self.get_aggregate_metrics()
 
-lr = 3e-2
+lr = 3e-3
 lr_warmup_epochs = 5
 num_epochs = 100
-batch_size = 2048
+batch_size = 256
 grad_acc_epochs = 1
 num_classes = 40
 weight_decay = 2e-3
@@ -436,7 +436,7 @@ def getDataLoader(dataset):
     return torch.utils.data.DataLoader(dataset,
         batch_size = batch_size,
         shuffle=True,
-        num_workers=10,
+        num_workers=3,
         persistent_workers = True,
         prefetch_factor=2, 
         pin_memory = True, 
@@ -522,7 +522,7 @@ if __name__ == '__main__':
     )
     '''
     
-    model = mz.resnet6t(num_classes = num_classes)
+    model = mz.resnet8(num_classes = num_classes)
     
     '''
     model = mz.ViT(
@@ -601,8 +601,8 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    loss = criterion(outputs, labels)
-                    #loss = criterion(outputs, (1-labels)*stepAtThreshold(labels, boundary.detach()) + labels) if epoch > 0 else criterion(outputs, labels)
+                    #loss = criterion(outputs, labels)
+                    loss = criterion(outputs, (1-labels)*stepAtThreshold(labels, boundary.detach()) + labels) if epoch > 0 else criterion(outputs, labels)
                     #loss = criterion(outputs + torch.special.logit(boundary.detach(), eps=1e-12), labels)
                     #criterion.tau_per_class = boundary + 0.1
                     #loss = criterion(outputs, labels, epoch)
