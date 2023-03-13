@@ -553,8 +553,8 @@ if __name__ == '__main__':
     #criterion = Hill()
     #criterion = SymHill()
     #criterion = nn.BCEWithLogitsLoss()
-    #optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    optimizer = timm.optim.Adan(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
+    #optimizer = timm.optim.Adan(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,
         max_lr=lr, 
         steps_per_epoch=len(dataloaders['train']),
