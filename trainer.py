@@ -601,8 +601,8 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
-                    #targs = (1-labels)*stepAtThreshold(labels, torch.Tensor(boundary.detach(), requires_grad=False), base=10) + labels # soft SPLC
+                    #targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
+                    targs = ((1-labels)*stepAtThreshold(labels, boundary.detach(), base=10) + labels).detach().clone() # soft SPLC
                     #loss = criterion(outputs, labels)
                     
                     loss = criterion(outputs, targs) if epoch > 0 else criterion(outputs, labels)
