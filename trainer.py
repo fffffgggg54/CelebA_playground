@@ -601,7 +601,7 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(pred), labels) # hard SPLC
+                    targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
                     #targs = (1-labels)*stepAtThreshold(labels, torch.Tensor(boundary.detach(), requires_grad=False), base=10) + labels # soft SPLC
                     #loss = criterion(outputs, labels)
                     
