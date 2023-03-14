@@ -35,4 +35,23 @@ tensor([0.2046, 0.0171, 0.2220, 0.5563, 0.8201, 0.6320, 0.4793, 0.7479, 0.5245],
        device='cuda:1')
 mAP score regular 66.18
 
-BCE w/ target threshold via soft SPLC and ASL:
+BCE w/ target threshold (10,1000) via soft SPLC and ASL:
+tensor([0.1831, 0.0386, 0.0698, 0.7085, 0.7797, 0.9041, 0.6527, 0.9346, 0.7856],
+       device='cuda:1')
+tensor([0.1613, 0.0604, 0.0668, 0.7115, 0.6115, 0.8986, 0.6023, 0.9075, 0.7028],
+       device='cuda:1')
+mAP score regular 76.27
+
+BCE w/ threshold via hard SPLC and ASL:
+tensor([0.2217, 0.0000, 0.7783, 0.0000, 1.0000, 0.0000, 0.2217, 0.0000, 0.0000],
+       device='cuda:1')
+tensor([0.2217, 0.0000, 0.7783, 0.0000, 1.0000, 0.0000, 0.2217, 0.0000, 0.0000],
+       device='cuda:1')
+mAP score regular 23.76
+
+BCE w/ target threshold (10, 10) and pred threshold via soft SPLC and ASL:
+tensor([0.1856, 0.0361, 0.0831, 0.6952, 0.8249, 0.8905, 0.6155, 0.9366, 0.7719],
+       device='cuda:1')
+tensor([0.1679, 0.0538, 0.0888, 0.6894, 0.6887, 0.8759, 0.5607, 0.9107, 0.7056],
+       device='cuda:1')
+mAP score regular 76.12
