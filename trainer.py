@@ -611,8 +611,8 @@ if __name__ == '__main__':
             param.requires_grad = True
     
     model=model.to(device)
-    criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
-    #criterion = AsymmetricLossAdaptiveWorking()
+    #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    criterion = AsymmetricLossAdaptiveWorking()
     #criterion = AsymmetricLossSigmoidMod(gamma_neg=0, gamma_pos=0, clip=0.0)
     #criterion = SPLCModified(margin = 0.0, loss_fn = nn.BCEWithLogitsLoss())
     #criterion = Hill()
