@@ -328,7 +328,7 @@ class AsymmetricLossSigmoidMod(nn.Module):
 
 
 class AsymmetricLossAdaptiveWorking(nn.Module):
-    def __init__(self, gamma_neg=1, gamma_pos=1, clip=0.05, eps=1e-8, disable_torch_grad_focal_loss=True, adaptive = True, gap_target = 0.1, gamma_step = 0.01):
+    def __init__(self, gamma_neg=1, gamma_pos=1, clip=0.05, eps=1e-8, disable_torch_grad_focal_loss=False, adaptive = False, gap_target = 0.1, gamma_step = 0.01):
         super(AsymmetricLossAdaptiveWorking, self).__init__()
 
         self.gamma_neg = gamma_neg
@@ -488,10 +488,10 @@ class MetricTracker():
 lr = 3e-3
 lr_warmup_epochs = 5
 num_epochs = 100
-batch_size = 256
+batch_size = 1024
 grad_acc_epochs = 1
 num_classes = 40
-weight_decay = 2e-3
+weight_decay = 2e-2
 resume_epoch = 0
 
 device = 'cuda:1'
