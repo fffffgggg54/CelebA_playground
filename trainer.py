@@ -500,7 +500,7 @@ def getDataLoader(dataset):
     return torch.utils.data.DataLoader(dataset,
         batch_size = batch_size,
         shuffle=True,
-        num_workers=3,
+        num_workers=8,
         persistent_workers = True,
         prefetch_factor=2, 
         pin_memory = True, 
