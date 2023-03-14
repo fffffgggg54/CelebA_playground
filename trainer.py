@@ -676,22 +676,23 @@ if __name__ == '__main__':
                     #loss = criterion(outputs + torch.special.logit(boundary.detach(), eps=1e-12), labels)
                     #criterion.tau_per_class = boundary + 0.1
                     #loss = criterion(outputs, labels, epoch)
-                    if loss.isnan():
-                        print(outputs.cpu())
-                        print(outputs.cpu().sigmoid())
-                        exit()
                     if phase == 'train':
-                        loss.backward()
-                        if(i % grad_acc_epochs == 0):
-                            '''
-                            nn.utils.clip_grad_norm_(
-                                model.parameters(), 
-                                max_norm=1.0, 
-                                norm_type=2
-                            )
-                            '''
-                            optimizer.step()
-                            optimizer.zero_grad()
+                        if loss.isnan():
+                            print(outputs.cpu())
+                            print(outputs.cpu().sigmoid())
+                            #exit()
+                        else:
+                            loss.backward()
+                            if(i % grad_acc_epochs == 0):
+                                '''
+                                nn.utils.clip_grad_norm_(
+                                    model.parameters(), 
+                                    max_norm=1.0, 
+                                    norm_type=2
+                                )
+                                '''
+                                optimizer.step()
+                                optimizer.zero_grad()
                         scheduler.step()
                     
                     if i % stepsPerPrintout == 0:
