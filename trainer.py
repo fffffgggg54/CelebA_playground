@@ -328,7 +328,7 @@ class AsymmetricLossSigmoidMod(nn.Module):
 
 
 class AsymmetricLossAdaptiveWorking(nn.Module):
-    def __init__(self, gamma_neg=0, gamma_pos=1, clip=0.0, eps=1e-8, disable_torch_grad_focal_loss=False, adaptive = True, gap_target = 0.1, gamma_step = 0.01):
+    def __init__(self, gamma_neg=0, gamma_pos=1, clip=0.0, eps=1e-8, disable_torch_grad_focal_loss=True, adaptive = True, gap_target = 0.1, gamma_step = 0.01):
         super(AsymmetricLossAdaptiveWorking, self).__init__()
 
         self.gamma_neg = gamma_neg
