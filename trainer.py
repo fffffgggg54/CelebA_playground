@@ -221,7 +221,7 @@ class SymHill(nn.Module):
 
         # Symmetric Hill loss calculation
         los_pos = targets * (xs_pos + 0.5) * (1 - xs_pos) ** 2
-        los_neg = (1 - targets) * (xs_neg + 0.5) * (1 - xs_neg) ** 2
+        los_neg = (1 - targets) * (1.5 - xs_neg) * xs_neg ** 2
 
         loss = los_pos + los_neg
 
@@ -613,11 +613,11 @@ if __name__ == '__main__':
     
     model=model.to(device)
     #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
-    criterion = AsymmetricLossAdaptiveWorking()
+    #criterion = AsymmetricLossAdaptiveWorking()
     #criterion = AsymmetricLossSigmoidMod(gamma_neg=0, gamma_pos=0, clip=0.0)
     #criterion = SPLCModified(margin = 0.0, loss_fn = nn.BCEWithLogitsLoss())
     #criterion = Hill()
-    #criterion = SymHill()
+    criterion = SymHill()
     #criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
     #optimizer = timm.optim.Adan(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -667,8 +667,10 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    #targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
-                    targs = ((1-labels)*stepAtThreshold(labels, boundary.detach()) + labels).detach().clone() # soft SPLC
+                    with torch.no_grad():
+                    #    targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
+                    #    targs = ((1-labels)*stepAtThreshold(labels, boundary.detach()) + labels).detach().clone() # soft SPLC
+                    
                     #shiftedLogits = outputs + torch.special.logit(boundary.detach().clone(), eps=1e-12)
                     #loss = criterion(outputs, labels)
                     
