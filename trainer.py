@@ -611,8 +611,8 @@ if __name__ == '__main__':
             param.requires_grad = True
     
     model=model.to(device)
-    criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
-    #criterion = AsymmetricLossAdaptiveWorking()
+    #criterion = AsymmetricLoss(gamma_neg=0, gamma_pos=0, clip=0.0)
+    criterion = AsymmetricLossAdaptiveWorking()
     #criterion = AsymmetricLossSigmoidMod(gamma_neg=0, gamma_pos=0, clip=0.0)
     #criterion = SPLCModified(margin = 0.0, loss_fn = nn.BCEWithLogitsLoss())
     #criterion = Hill()
@@ -667,11 +667,12 @@ if __name__ == '__main__':
                         outputs.sigmoid().numpy(force=True)
                     )
                     #targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
-                    targs = ((1-labels)*stepAtThreshold(labels, boundary.detach(), base=10) + labels).detach().clone() # soft SPLC
-                    #loss = criterion(outputs, labels)
+                    #targs = ((1-labels)*stepAtThreshold(labels, boundary.detach()) + labels).detach().clone() # soft SPLC
+                    #shiftedLogits = outputs + torch.special.logit(boundary.detach().clone(), eps=1e-12)
+                    loss = criterion(outputs, labels)
                     
                     #loss = criterion(outputs, targs) if epoch > 0 else criterion(outputs, labels)
-                    loss = criterion(outputs + torch.special.logit(boundary.detach(), eps=1e-12), targs) if epoch > 0 else criterion(outputs, labels)
+                    #loss = criterion(shiftedLogits, targs) if epoch > 0 else criterion(outputs, labels)
                     #loss = criterion(outputs + torch.special.logit(boundary.detach(), eps=1e-12), labels)
                     #criterion.tau_per_class = boundary + 0.1
                     #loss = criterion(outputs, labels, epoch)
