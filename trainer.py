@@ -638,6 +638,8 @@ if __name__ == '__main__':
         AP_regular = []
         AccuracyRunning = []
         for phase in ['train', 'val']:
+            targets_running = []
+            preds_running = []
             cm_tracker = MetricTracker()
             cm_tracker_unmod = MetricTracker()
             if phase == 'train':
@@ -659,6 +661,8 @@ if __name__ == '__main__':
                     
                     
                     preds = torch.sigmoid(outputs)
+                    targets_running.append(outputs.detach().clone())
+                    preds_running.append(preds.detach().clone())
                     boundary = boundaryCalculator(preds, labels)
                     predsModified = (preds > boundary).float()
                     multiAccuracy = cm_tracker.update(predsModified, labels)
@@ -723,7 +727,7 @@ if __name__ == '__main__':
                 print(cm_tracker_unmod.get_aggregate_metrics())
                 
                 
-                mAP_score_regular = np.mean(AP_regular)
+                mAP_score_regular = mAP(torch.cat(targets_running).numpy(force=True), torch.cat(preds_running).numpy(force=True))
                 print("mAP score regular {:.2f}".format(mAP_score_regular))
 
                     
