@@ -727,8 +727,8 @@ if __name__ == '__main__':
                 print(cm_tracker_unmod.get_aggregate_metrics())
                 
                 
-                mAP_score_regular = mAP(torch.cat(targets_running).numpy(force=True), torch.cat(preds_running).numpy(force=True))
-                print("mAP score regular {:.2f}".format(mAP_score_regular))
+            mAP_score_regular = mAP(torch.cat(targets_running).numpy(force=True), torch.cat(preds_running).numpy(force=True))
+            print("mAP score regular {:.2f}".format(mAP_score_regular))
 
                     
 
