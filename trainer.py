@@ -661,7 +661,7 @@ if __name__ == '__main__':
                     
                     
                     preds = torch.sigmoid(outputs)
-                    targets_running.append(outputs.detach().clone())
+                    targets_running.append(labels.detach().clone())
                     preds_running.append(preds.detach().clone())
                     boundary = boundaryCalculator(preds, labels)
                     predsModified = (preds > boundary).float()
