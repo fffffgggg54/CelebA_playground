@@ -671,16 +671,16 @@ if __name__ == '__main__':
                         labels.numpy(force=True),
                         outputs.sigmoid().numpy(force=True)
                     )
-                    with torch.no_grad():
-                        targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
+                    #with torch.no_grad():
+                    #    targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
                     #    targs = stepAtThreshold(preds, boundary.detach()).detach().clone() # soft SPLC
                     
-                    #shiftedLogits = outputs + torch.special.logit(boundary.detach().clone(), eps=1e-12)
+                    shiftedLogits = outputs + torch.special.logit(boundary.detach().clone(), eps=1e-12)
                     #loss = criterion(outputs, labels)
                     
-                    loss = criterion(outputs, targs) if epoch > 10 else criterion(outputs, labels)
+                    #loss = criterion(outputs, targs) if epoch > 10 else criterion(outputs, labels)
                     #loss = criterion(shiftedLogits, targs) if epoch > 0 else criterion(outputs, labels)
-                    #loss = criterion(outputs + torch.special.logit(boundary.detach(), eps=1e-12), labels)
+                    loss = criterion(shiftedLogits, labels)
                     #criterion.tau_per_class = boundary + 0.1
                     #loss = criterion(outputs, labels, epoch)
                     if loss.isnan():
