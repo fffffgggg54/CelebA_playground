@@ -672,7 +672,7 @@ if __name__ == '__main__':
                         outputs.sigmoid().numpy(force=True)
                     )
                     with torch.no_grad():
-                    #    targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
+                        targs = torch.where(preds > boundary.detach(), torch.tensor(1).to(preds), labels) # hard SPLC
                     #    targs = stepAtThreshold(preds, boundary.detach()).detach().clone() # soft SPLC
                     
                     #shiftedLogits = outputs + torch.special.logit(boundary.detach().clone(), eps=1e-12)
